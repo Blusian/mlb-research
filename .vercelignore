@@ -1,0 +1,14 @@
+app/
+backend/
+database/
+docs/
+tests/
+requirements.txt
+scripts/run_python_backend.py
+.env
+.env.local
+frontend/.env
+frontend/.env.local
+.pytest_cache/
+.mypy_cache/
+__pycache__/
