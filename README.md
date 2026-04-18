@@ -120,11 +120,33 @@ Do not rely on localhost in deployed environments. The frontend now throws a cle
 
 The FastAPI backend should be hosted outside this Vercel frontend project.
 
+Recommended backend host for this repo: Railway.
+
 Current production considerations:
 
 - The app uses backend-side persistence and caching assumptions that are not a fit for a frontend-only Vercel deployment.
 - Use a real hosted database for production instead of local SQLite files.
 - Set `CORS_ORIGINS` to include your Vercel frontend domain.
+- Railway is a good fit for this project because it handles long-running backend services, managed Postgres, and future worker or cron expansion more naturally than a frontend-focused serverless deployment.
+
+### Railway Backend
+
+The repo includes Railway-ready backend deployment files:
+
+- `Dockerfile`
+- `.dockerignore`
+- `railway.json`
+
+The Railway backend should use:
+
+- `DATABASE_URL` from a managed Postgres service
+- `CORS_ORIGINS=https://mlb-research.vercel.app`
+
+After Railway gives you a public backend domain, set this on the Vercel frontend project:
+
+```bash
+VITE_API_BASE_URL=https://your-backend.up.railway.app
+```
 
 ## CI
 

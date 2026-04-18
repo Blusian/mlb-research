@@ -3,8 +3,19 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _normalize_database_url(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return normalized
+    if normalized.startswith("postgres://"):
+        return "postgresql+psycopg://" + normalized[len("postgres://") :]
+    if normalized.startswith("postgresql://") and "+" not in normalized.split("://", 1)[0]:
+        return "postgresql+psycopg://" + normalized[len("postgresql://") :]
+    return normalized
 
 
 class Settings(BaseSettings):
@@ -50,6 +61,11 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="http://localhost:5173", alias="CORS_ORIGINS")
     statcast_start_month_day: str = Field(default="03-01", alias="STATCAST_START_MONTH_DAY")
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        return _normalize_database_url(value)
+
     @property
     def timeout_seconds(self) -> float:
         return self.live_provider_timeout_ms / 1000
@@ -57,6 +73,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.startswith("sqlite")
 
 
 @lru_cache(maxsize=1)
