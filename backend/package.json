@@ -1,0 +1,28 @@
+{
+  "name": "@mlb-analyzer/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "capture:snapshot": "tsx src/modeling/scripts/captureSnapshot.ts",
+    "ingest:results": "tsx src/modeling/scripts/ingestResults.ts",
+    "import:odds": "tsx src/modeling/scripts/importOddsCsv.ts",
+    "backtest": "tsx src/modeling/scripts/runBacktest.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.1",
+    "@mlb-analyzer/scoring-engine": "0.1.0",
+    "@mlb-analyzer/shared": "0.1.0",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "tsx": "^4.19.3"
+  }
+}

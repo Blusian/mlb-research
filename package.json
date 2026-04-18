@@ -1,0 +1,43 @@
+{
+  "name": "mlb-daily-matchup-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "workspaces": [
+    "backend",
+    "frontend",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "python -m uvicorn app.main:app --host 0.0.0.0 --port 4000 --reload",
+    "dev:legacy-backend": "npm run dev --workspace @mlb-analyzer/backend",
+    "build:web": "npm run build --workspace @mlb-analyzer/shared && npm run build --workspace @mlb-analyzer/frontend",
+    "build": "npm run build --workspace @mlb-analyzer/shared && npm run build --workspace @mlb-analyzer/scoring-engine && npm run build --workspace @mlb-analyzer/backend && npm run build --workspace @mlb-analyzer/frontend",
+    "lint:web": "npm run lint --workspace @mlb-analyzer/shared && npm run lint --workspace @mlb-analyzer/frontend",
+    "lint": "npm run lint --workspace @mlb-analyzer/shared && npm run lint --workspace @mlb-analyzer/scoring-engine && npm run lint --workspace @mlb-analyzer/backend && npm run lint --workspace @mlb-analyzer/frontend",
+    "test": "npm run build && node --test tests/**/*.test.mjs",
+    "typecheck:web": "npm run typecheck --workspace @mlb-analyzer/shared && npm run typecheck --workspace @mlb-analyzer/frontend",
+    "typecheck": "npm run typecheck --workspace @mlb-analyzer/shared && npm run typecheck --workspace @mlb-analyzer/scoring-engine && npm run typecheck --workspace @mlb-analyzer/backend && npm run typecheck --workspace @mlb-analyzer/frontend",
+    "python:install": "python -m pip install -r requirements.txt",
+    "python:test": "python -m unittest discover -s tests/python_backend -p \"test_*.py\"",
+    "capture:snapshot": "npm run capture:snapshot --workspace @mlb-analyzer/backend --",
+    "ingest:results": "npm run ingest:results --workspace @mlb-analyzer/backend --",
+    "import:odds": "npm run import:odds --workspace @mlb-analyzer/backend --",
+    "backtest": "npm run backtest --workspace @mlb-analyzer/backend --",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.24.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.24.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.28.0"
+  }
+}

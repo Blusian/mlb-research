@@ -1,0 +1,20 @@
+{
+  "name": "@mlb-analyzer/scoring-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/scoring-engine/src/index.js",
+  "types": "dist/scoring-engine/src/index.d.ts",
+  "exports": {
+    ".": "./dist/scoring-engine/src/index.js"
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@mlb-analyzer/shared": "0.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
