@@ -106,13 +106,18 @@ def _merge_weather(primary: dict | None, fallback: dict | None) -> dict | None:
     return {
         "condition": primary.get("condition") or (fallback or {}).get("condition") or "Conditions unavailable",
         "temperatureF": primary.get("temperatureF") if primary.get("temperatureF") is not None else (fallback or {}).get("temperatureF"),
+        "temperatureC": primary.get("temperatureC") if primary.get("temperatureC") is not None else (fallback or {}).get("temperatureC"),
         "wind": primary.get("wind") or (fallback or {}).get("wind"),
         "precipitationProbability": primary.get("precipitationProbability")
         if primary.get("precipitationProbability") is not None
         else (fallback or {}).get("precipitationProbability"),
         "humidity": primary.get("humidity") if primary.get("humidity") is not None else (fallback or {}).get("humidity"),
         "windSpeedMph": primary.get("windSpeedMph") if primary.get("windSpeedMph") is not None else (fallback or {}).get("windSpeedMph"),
+        "windGustsMph": primary.get("windGustsMph") if primary.get("windGustsMph") is not None else (fallback or {}).get("windGustsMph"),
         "windDirection": primary.get("windDirection") or (fallback or {}).get("windDirection"),
+        "windDirectionDegrees": primary.get("windDirectionDegrees") if primary.get("windDirectionDegrees") is not None else (fallback or {}).get("windDirectionDegrees"),
+        "cloudCover": primary.get("cloudCover") if primary.get("cloudCover") is not None else (fallback or {}).get("cloudCover"),
+        "pressureHpa": primary.get("pressureHpa") if primary.get("pressureHpa") is not None else (fallback or {}).get("pressureHpa"),
     }
 
 

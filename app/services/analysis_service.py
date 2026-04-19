@@ -9,15 +9,16 @@ from app.data_sources.fangraphs import FangraphsSource
 from app.models.schemas import DailyAnalysisResponse
 from app.scoring.engine import (
     derive_home_run_probability,
-    derive_pitcher_outs_prop,
-    derive_pitcher_walk_prop,
-    derive_strikeout_prop,
     score_hitter,
     score_pitcher,
 )
 from app.services.explanation_engine import build_hitter_reasons, build_pitcher_reasons
+from app.services.feature_builder import feature_snapshot_timestamp
 from app.services.filtering import filter_games, filter_hitters, filter_pitchers
 from app.services.matchup_engine import MatchupEngine
+from app.services.prop_models.count_transition import build_pitcher_count_transition_bundle
+from app.services.prop_models.hitter_outcomes import build_hitter_outcome_bundle
+from app.services.prop_models.survival import project_pitcher_outs
 from app.services.schedule_service import ScheduleService
 from app.utils.cache import ResponseCache
 from app.utils.math_utils import average, clamp, inverse_scale_to_score, quality_bucket, scale_to_score, weighted_average
@@ -685,7 +686,7 @@ class DailyAnalysisService:
         analysis_date = query.get("date") or self.settings.default_analysis_date
         if not analysis_date:
             analysis_date = datetime.now(timezone.utc).date().isoformat()
-        cache_key = f"python-fastapi-analysis:v8:{analysis_date}"
+        cache_key = f"python-fastapi-analysis:v9:{analysis_date}"
         if force_refresh:
             self.cache.delete(cache_key)
         cached = None if force_refresh else self.cache.get(cache_key)
@@ -698,19 +699,48 @@ class DailyAnalysisService:
     def _build_unfiltered_response(self, analysis_date: str) -> dict:
         games = self.schedule_service.get_games(analysis_date)
         hitters, pitchers, engine_notes = self.matchup_engine.build_candidates(games, analysis_date)
-        for hitter in hitters:
-            hitter["scores"] = score_hitter(hitter)
-            hitter["reasons"] = build_hitter_reasons(hitter)
+        generated_at = feature_snapshot_timestamp()
+        pitcher_lookup: dict[tuple[str, str], dict] = {}
         for pitcher in pitchers:
             pitcher["scores"] = score_pitcher(pitcher)
-            strikeout_breakdown = derive_strikeout_prop(pitcher)
+            count_transition_bundle = build_pitcher_count_transition_bundle(
+                pitcher,
+                analysis_date=analysis_date,
+            )
+            strikeout_breakdown = count_transition_bundle["pitcher_strikeouts"]
+            walk_breakdown = count_transition_bundle["pitcher_walks"]
+            outs_breakdown = project_pitcher_outs(
+                pitcher,
+                analysis_date=analysis_date,
+                walk_projection=walk_breakdown,
+            )
             pitcher["metrics"]["projectedStrikeoutsVsOpponent"] = strikeout_breakdown["meanKs"]
             pitcher["metrics"]["medianStrikeoutsVsOpponent"] = strikeout_breakdown["medianKs"]
-            pitcher["metrics"]["projectedBattersFaced"] = strikeout_breakdown["projectionLayer"]["expectedBattersFaced"]
+            pitcher["metrics"]["projectedBattersFaced"] = strikeout_breakdown["projectionLayer"]["projectedBattersFaced"]
             pitcher["metrics"]["lineupVsPitcherHandKRate"] = strikeout_breakdown["projectionLayer"]["lineupVsPitcherHandKRate"]
             pitcher["metrics"]["matchupAdjustedKRate"] = strikeout_breakdown["projectionLayer"]["matchupAdjustedKRate"]
             pitcher["metrics"]["opponentLineupConfidenceScore"] = strikeout_breakdown["projectionLayer"]["lineupConfidence"]
+            pitcher["metrics"]["propModeling"] = {
+                "pitcherStrikeouts": strikeout_breakdown,
+                "pitcherWalks": walk_breakdown,
+                "pitcherOuts": outs_breakdown,
+            }
             pitcher["reasons"] = build_pitcher_reasons(pitcher)
+            pitcher_lookup[(pitcher["gameId"], pitcher["team"]["abbreviation"])] = pitcher
+        for hitter in hitters:
+            hitter["scores"] = score_hitter(hitter)
+            opposing_pitcher = pitcher_lookup.get((hitter["gameId"], hitter["opponent"]["abbreviation"]))
+            hitter_outcome_bundle = build_hitter_outcome_bundle(
+                hitter,
+                opposing_pitcher,
+                analysis_date=analysis_date,
+            )
+            hitter["metrics"]["projectedPlateAppearances"] = hitter_outcome_bundle["hitter_hits"]["projectionLayer"]["projectedPlateAppearances"]
+            hitter["metrics"]["propModeling"] = {
+                "hitterHits": hitter_outcome_bundle["hitter_hits"],
+                "hitterTotalBases": hitter_outcome_bundle["hitter_total_bases"],
+            }
+            hitter["reasons"] = build_hitter_reasons(hitter)
         _attach_game_run_projections(games, hitters, pitchers)
         hitters.sort(key=lambda hitter: hitter["scores"]["overallHitScore"], reverse=True)
         pitchers.sort(key=lambda pitcher: pitcher["scores"]["overallPitcherScore"], reverse=True)
@@ -772,7 +802,7 @@ class DailyAnalysisService:
         response = {
             "meta": {
                 "analysisDate": analysis_date,
-                "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "generatedAt": generated_at,
                 "source": "live",
                 "providerName": "python-fastapi-matchup-engine",
                 "cacheStatus": "miss",
@@ -801,6 +831,7 @@ class DailyAnalysisService:
                     label_suffix="hits",
                     line_value=1.5,
                     projection_fn=_derive_hits_projection,
+                    feature_snapshot=generated_at,
                 ),
                 "hitterRuns": self._build_hitter_stat_props(
                     hitter_runs_candidates,
@@ -809,6 +840,7 @@ class DailyAnalysisService:
                     label_suffix="runs",
                     line_value=0.5,
                     projection_fn=_derive_runs_projection,
+                    feature_snapshot=generated_at,
                 ),
                 "hitterRbis": self._build_hitter_stat_props(
                     hitter_rbis_candidates,
@@ -817,6 +849,7 @@ class DailyAnalysisService:
                     label_suffix="RBI",
                     line_value=0.5,
                     projection_fn=_derive_rbi_projection,
+                    feature_snapshot=generated_at,
                 ),
                 "hitterTotalBases": self._build_hitter_stat_props(
                     hitter_total_bases_candidates,
@@ -825,6 +858,7 @@ class DailyAnalysisService:
                     label_suffix="total bases",
                     line_value=1.5,
                     projection_fn=_derive_total_bases_projection,
+                    feature_snapshot=generated_at,
                 ),
                 "hitterWalks": self._build_hitter_stat_props(
                     hitter_walks_candidates,
@@ -833,19 +867,22 @@ class DailyAnalysisService:
                     label_suffix="walks",
                     line_value=0.5,
                     projection_fn=_derive_walks_projection,
+                    feature_snapshot=generated_at,
                 ),
-                "pitcherStrikeouts": self._build_pitcher_props(pitchers),
+                "pitcherStrikeouts": self._build_pitcher_props(pitchers, feature_snapshot=generated_at),
                 "pitcherWalks": self._build_pitcher_line_props(
                     pitchers,
                     market="pitcher_walks",
                     label_suffix="walks allowed",
                     line_value=2.5,
+                    feature_snapshot=generated_at,
                 ),
                 "pitcherOuts": self._build_pitcher_line_props(
                     pitchers,
                     market="pitcher_outs",
                     label_suffix="outs recorded",
                     line_value=15.5,
+                    feature_snapshot=generated_at,
                 ),
             },
             "rankings": {
@@ -918,14 +955,65 @@ class DailyAnalysisService:
         label_suffix: str,
         line_value: float,
         projection_fn,
+        feature_snapshot: str,
     ) -> list[dict]:
         props = []
         for hitter in hitters:
             market_confidence = hitter["scores"].get("marketConfidence", {}).get(confidence_key)
             if not market_confidence:
                 continue
-            projection_value = projection_fn(hitter)
             metrics = hitter["metrics"]
+            probabilistic_key = {
+                "hitter_hits": "hitterHits",
+                "hitter_total_bases": "hitterTotalBases",
+            }.get(market)
+            probabilistic_breakdown = (metrics.get("propModeling") or {}).get(probabilistic_key) if probabilistic_key else None
+            if probabilistic_breakdown:
+                projection_value = probabilistic_breakdown["projectionValue"]
+                market_score = weighted_average(
+                    [
+                        (market_confidence["score"], 0.34),
+                        (probabilistic_breakdown["overLineProbability"] * 100, 0.34),
+                        (probabilistic_breakdown["confidenceScore"], 0.20),
+                        (100 - probabilistic_breakdown["uncertaintyScore"], 0.12),
+                    ],
+                    fallback=market_confidence["score"],
+                )
+                confidence = probabilistic_breakdown["confidence"]
+                mean_value = probabilistic_breakdown["meanValue"]
+                median_value = probabilistic_breakdown["medianValue"]
+                over_line_probability = probabilistic_breakdown["overLineProbability"]
+                under_line_probability = probabilistic_breakdown["underLineProbability"]
+                confidence_score = probabilistic_breakdown["confidenceScore"]
+                uncertainty_score = probabilistic_breakdown["uncertaintyScore"]
+                model_type = probabilistic_breakdown["modelType"]
+                projection_layer = probabilistic_breakdown["projectionLayer"]
+                risk_layer = probabilistic_breakdown["riskLayer"]
+                distribution = probabilistic_breakdown.get("distribution")
+                data_quality_flags = probabilistic_breakdown.get("dataQualityFlags", [])
+            else:
+                projection_value = projection_fn(hitter)
+                market_score = market_confidence["score"]
+                confidence = market_confidence["confidenceRating"]
+                mean_value = projection_value
+                median_value = projection_value
+                over_line_probability = None
+                under_line_probability = None
+                confidence_score = None
+                uncertainty_score = None
+                model_type = "heuristic_projection"
+                projection_layer = {
+                    "projectedPlateAppearances": round(
+                        metrics.get(
+                            "projectedPlateAppearances",
+                            _expected_plate_appearances(metrics["lineupSpot"], metrics["lineupConfirmed"]),
+                        ),
+                        2,
+                    )
+                }
+                risk_layer = {"lineupVolatility": 0.0 if metrics["lineupConfirmed"] else 28.0}
+                distribution = None
+                data_quality_flags = [] if metrics["lineupConfirmed"] else ["projected_lineup"]
             props.append(
                 {
                     "market": market,
@@ -939,11 +1027,23 @@ class DailyAnalysisService:
                     "lineupSpot": metrics["lineupSpot"],
                     "lineupConfirmed": metrics["lineupConfirmed"],
                     "lineupSource": _hitter_lineup_source(metrics),
-                    "marketScore": market_confidence["score"],
+                    "marketScore": round(market_score, 1),
                     "lineValue": line_value,
                     "projectionValue": projection_value,
+                    "meanValue": round(mean_value, 2),
+                    "medianValue": round(median_value, 1),
                     "deltaVsLine": round(projection_value - line_value, 2),
-                    "confidence": market_confidence["confidenceRating"],
+                    "overLineProbability": over_line_probability,
+                    "underLineProbability": under_line_probability,
+                    "confidenceScore": confidence_score,
+                    "uncertaintyScore": uncertainty_score,
+                    "modelType": model_type,
+                    "projectionLayer": projection_layer,
+                    "riskLayer": risk_layer,
+                    "featureSnapshotTimestamp": feature_snapshot,
+                    "dataQualityFlags": data_quality_flags,
+                    "distribution": distribution,
+                    "confidence": confidence,
                     "reasons": hitter["reasons"],
                     "metrics": {
                         "averageVsHandedness": metrics["averageVsHandedness"],
@@ -961,15 +1061,17 @@ class DailyAnalysisService:
                         "hitParkFactorVsHandedness": metrics.get("hitParkFactorVsHandedness", 100.0),
                         "walkParkFactorVsHandedness": metrics.get("walkParkFactorVsHandedness", 100.0),
                         "projectedPlateAppearances": round(
-                            _expected_plate_appearances(
-                                metrics["lineupSpot"],
-                                metrics["lineupConfirmed"],
+                            metrics.get(
+                                "projectedPlateAppearances",
+                                _expected_plate_appearances(metrics["lineupSpot"], metrics["lineupConfirmed"]),
                             ),
                             2,
                         ),
                         "seasonGrowthPercent": metrics.get("seasonGrowthPercent"),
                         "isRookieSeason": metrics.get("isRookieSeason"),
                         "rookieSeasonWarning": metrics.get("rookieSeasonWarning"),
+                        "projectionLayer": projection_layer,
+                        "riskLayer": risk_layer,
                     },
                 }
             )
@@ -983,23 +1085,50 @@ class DailyAnalysisService:
         )
         return props
 
-    def _build_pitcher_props(self, pitchers: list[dict]) -> list[dict]:
+    def _build_pitcher_props(self, pitchers: list[dict], feature_snapshot: str) -> list[dict]:
         props = []
         for pitcher in pitchers:
-            breakdown = derive_strikeout_prop(pitcher)
+            breakdown = (pitcher["metrics"].get("propModeling") or {}).get("pitcherStrikeouts")
+            if not breakdown:
+                continue
+            market_score = weighted_average(
+                [
+                    (pitcher["scores"]["strikeoutUpsideScore"], 0.36),
+                    (breakdown["overLineProbability"] * 100, 0.34),
+                    (breakdown["confidenceScore"], 0.18),
+                    (100 - breakdown["uncertaintyScore"], 0.12),
+                ],
+                fallback=pitcher["scores"]["strikeoutUpsideScore"],
+            )
+            line_value = breakdown.get("lineValue", 4.5)
             props.append(
                 {
                     "market": "pitcher_strikeouts",
                     "entityId": pitcher["playerId"],
                     "gameId": pitcher["gameId"],
-                    "label": f"{pitcher['playerName']} projected Ks vs {pitcher['opponent']['abbreviation']}",
+                    "label": f"{pitcher['playerName']} over {line_value:.1f} strikeouts",
                     "playerName": pitcher["playerName"],
                     "teamAbbreviation": pitcher["team"]["abbreviation"],
                     "opponentAbbreviation": pitcher["opponent"]["abbreviation"],
                     "matchupLabel": pitcher["matchupLabel"],
                     "lineupConfirmed": _pitcher_lineup_confirmed(pitcher["metrics"]),
                     "lineupSource": _pitcher_lineup_source(pitcher["metrics"]),
-                    "strikeoutScore": pitcher["scores"]["strikeoutUpsideScore"],
+                    "strikeoutScore": round(market_score, 1),
+                    "lineValue": line_value,
+                    "projectionValue": breakdown["projectedStrikeouts"],
+                    "meanValue": breakdown["meanValue"],
+                    "medianValue": breakdown["medianValue"],
+                    "deltaVsLine": round(breakdown["projectedStrikeouts"] - line_value, 2),
+                    "overLineProbability": breakdown["overLineProbability"],
+                    "underLineProbability": breakdown["underLineProbability"],
+                    "confidenceScore": breakdown["confidenceScore"],
+                    "uncertaintyScore": breakdown["uncertaintyScore"],
+                    "modelType": breakdown["modelType"],
+                    "projectionLayer": breakdown["projectionLayer"],
+                    "riskLayer": breakdown["riskLayer"],
+                    "featureSnapshotTimestamp": feature_snapshot,
+                    "dataQualityFlags": breakdown.get("dataQualityFlags", []),
+                    "distribution": breakdown.get("distribution"),
                     "projectedStrikeouts": breakdown["meanKs"],
                     "meanKs": breakdown["meanKs"],
                     "medianKs": breakdown["medianKs"],
@@ -1030,6 +1159,14 @@ class DailyAnalysisService:
                     },
                 }
             )
+        props.sort(
+            key=lambda prop: (
+                PROP_CONFIDENCE_RANK.get(prop["confidence"], 0),
+                prop["deltaVsLine"],
+                prop["strikeoutScore"],
+            ),
+            reverse=True,
+        )
         return props
 
     def _build_pitcher_line_props(
@@ -1038,12 +1175,16 @@ class DailyAnalysisService:
         market: str,
         label_suffix: str,
         line_value: float,
+        feature_snapshot: str,
     ) -> list[dict]:
         props = []
         for pitcher in pitchers:
             metrics = pitcher["metrics"]
+            prop_model_key = "pitcherWalks" if market == "pitcher_walks" else "pitcherOuts"
+            breakdown = (metrics.get("propModeling") or {}).get(prop_model_key)
+            if not breakdown:
+                continue
             if market == "pitcher_walks":
-                breakdown = derive_pitcher_walk_prop(pitcher, line_value)
                 projection_value = breakdown["meanWalks"]
                 market_score = weighted_average(
                     [
@@ -1056,7 +1197,6 @@ class DailyAnalysisService:
                     fallback=50.0,
                 )
             else:
-                breakdown = derive_pitcher_outs_prop(pitcher, line_value)
                 projection_value = breakdown["meanOuts"]
                 market_score = weighted_average(
                     [
@@ -1082,16 +1222,21 @@ class DailyAnalysisService:
                     "lineupConfirmed": _pitcher_lineup_confirmed(metrics),
                     "lineupSource": _pitcher_lineup_source(metrics),
                     "marketScore": round(market_score, 1),
-                    "lineValue": line_value,
+                    "lineValue": breakdown.get("lineValue", line_value),
                     "projectionValue": projection_value,
                     "meanValue": projection_value,
                     "medianValue": breakdown["medianWalks"] if market == "pitcher_walks" else breakdown["medianOuts"],
-                    "deltaVsLine": round(projection_value - line_value, 2),
+                    "deltaVsLine": round(projection_value - breakdown.get("lineValue", line_value), 2),
                     "overLineProbability": breakdown["overLineProbability"],
                     "underLineProbability": breakdown["underLineProbability"],
                     "confidenceScore": breakdown["confidenceScore"],
                     "uncertaintyScore": breakdown["uncertaintyScore"],
-                    "modelType": "hybrid_workload_command" if market == "pitcher_walks" else "hybrid_workload_survival",
+                    "modelType": breakdown["modelType"],
+                    "projectionLayer": breakdown["projectionLayer"],
+                    "riskLayer": breakdown["riskLayer"],
+                    "featureSnapshotTimestamp": feature_snapshot,
+                    "dataQualityFlags": breakdown.get("dataQualityFlags", []),
+                    "distribution": breakdown.get("distribution"),
                     "confidence": breakdown["confidence"],
                     "reasons": pitcher["reasons"],
                     "metrics": {

@@ -23,6 +23,27 @@ class MlbStatsApiSource:
         payload = self.client.get_json(url)
         return ((payload.get("dates") or [{}])[0].get("games") or [])
 
+    def get_schedule_snapshot(self, date: str) -> list[dict[str, Any]]:
+        snapshots: list[dict[str, Any]] = []
+        for game in self.get_schedule(date):
+            teams = game.get("teams") or {}
+            away = teams.get("away") or {}
+            home = teams.get("home") or {}
+            snapshots.append(
+                {
+                    "game_id": str(game.get("gamePk") or ""),
+                    "game_datetime": game.get("gameDate"),
+                    "game_date": date,
+                    "venue": (game.get("venue") or {}).get("name"),
+                    "status": ((game.get("status") or {}).get("abstractGameState") or "").lower(),
+                    "away_probable_pitcher": self._normalize_probable_pitcher(away.get("probablePitcher")),
+                    "home_probable_pitcher": self._normalize_probable_pitcher(home.get("probablePitcher")),
+                    "away_team_id": str(((away.get("team") or {}).get("id")) or ""),
+                    "home_team_id": str(((home.get("team") or {}).get("id")) or ""),
+                }
+            )
+        return snapshots
+
     def get_game_feed(self, game_pk: int, timeout_seconds: float | None = None) -> dict[str, Any] | None:
         try:
             return self.client.get_json(
@@ -103,6 +124,36 @@ class MlbStatsApiSource:
                         results[f"{person['id']}:{opposing_player_id}"] = splits[0]
         return results
 
+    @staticmethod
+    def normalize_sportsdataio_lineup(entry: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "playerId": str(entry.get("PlayerID") or entry.get("PlayerId") or ""),
+            "playerName": entry.get("Name") or entry.get("PlayerName") or "Unknown",
+            "battingOrder": entry.get("BattingOrder"),
+            "battingOrderConfirmed": bool(entry.get("BattingOrderConfirmed")),
+            "lineupSource": "sportsdataio",
+        }
+
+    @staticmethod
+    def normalize_sportradar_game_summary(summary: dict[str, Any]) -> dict[str, Any]:
+        probable_pitcher = summary.get("probable_pitcher") or {}
+        lineups = summary.get("lineups") or []
+        return {
+            "game_id": summary.get("id") or summary.get("game_id"),
+            "game_datetime": summary.get("scheduled") or summary.get("start_time"),
+            "probable_pitcher": {
+                "playerId": str(probable_pitcher.get("id") or ""),
+                "name": probable_pitcher.get("name") or probable_pitcher.get("preferred_name"),
+                "throwingHand": probable_pitcher.get("throw_hand"),
+            }
+            if probable_pitcher
+            else None,
+            "lineups": lineups,
+            "lineupSource": "sportradar",
+            "freshness": summary.get("updated") or summary.get("last_modified"),
+            "changeLogCursor": summary.get("change_log") or summary.get("daily_change_log"),
+        }
+
     def _get_people(self, person_ids: list[str], hydrate_expression: str | None = None) -> list[dict[str, Any]]:
         if not person_ids:
             return []
@@ -121,3 +172,14 @@ class MlbStatsApiSource:
             if (stat_block.get("type") or {}).get("displayName") == display_name:
                 return stat_block.get("splits") or []
         return []
+
+    @staticmethod
+    def _normalize_probable_pitcher(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not payload:
+            return None
+        pitch_hand = payload.get("pitchHand") or {}
+        return {
+            "playerId": str(payload.get("id") or ""),
+            "name": payload.get("fullName") or payload.get("name") or "TBD",
+            "throwingHand": pitch_hand.get("code") or pitch_hand.get("description"),
+        }

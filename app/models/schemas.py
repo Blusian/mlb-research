@@ -33,8 +33,15 @@ class ProbablePitcherInfo(FlexibleModel):
 class WeatherInfo(FlexibleModel):
     condition: str
     temperatureF: float | None = None
+    temperatureC: float | None = None
     wind: str | None = None
+    windSpeedMph: float | None = None
+    windGustsMph: float | None = None
+    windDirection: str | None = None
+    windDirectionDegrees: float | None = None
     precipitationProbability: float | None = None
+    cloudCover: float | None = None
+    pressureHpa: float | None = None
 
 
 class OfficialInfo(FlexibleModel):
@@ -181,6 +188,21 @@ class PitcherStrikeoutProp(FlexibleModel):
     lineupConfirmed: bool
     lineupSource: Literal["official", "projected", "mixed"]
     strikeoutScore: float
+    lineValue: float | None = None
+    projectionValue: float | None = None
+    meanValue: float | None = None
+    medianValue: float | None = None
+    deltaVsLine: float | None = None
+    overLineProbability: float | None = None
+    underLineProbability: float | None = None
+    confidenceScore: float | None = None
+    uncertaintyScore: float | None = None
+    modelType: str | None = None
+    projectionLayer: dict | None = None
+    riskLayer: dict | None = None
+    featureSnapshotTimestamp: str | None = None
+    dataQualityFlags: list[str] = Field(default_factory=list)
+    distribution: dict | None = None
     projectedStrikeouts: float
     meanKs: float
     medianKs: float
@@ -214,6 +236,11 @@ class PitcherLineProp(FlexibleModel):
     confidenceScore: float | None = None
     uncertaintyScore: float | None = None
     modelType: str | None = None
+    projectionLayer: dict | None = None
+    riskLayer: dict | None = None
+    featureSnapshotTimestamp: str | None = None
+    dataQualityFlags: list[str] = Field(default_factory=list)
+    distribution: dict | None = None
     confidence: Literal["elite", "strong", "watch", "thin"] = "watch"
     reasons: list[str]
     metrics: dict
@@ -240,7 +267,19 @@ class HitterStatProp(FlexibleModel):
     marketScore: float
     lineValue: float
     projectionValue: float
+    meanValue: float | None = None
+    medianValue: float | None = None
     deltaVsLine: float
+    overLineProbability: float | None = None
+    underLineProbability: float | None = None
+    confidenceScore: float | None = None
+    uncertaintyScore: float | None = None
+    modelType: str | None = None
+    projectionLayer: dict | None = None
+    riskLayer: dict | None = None
+    featureSnapshotTimestamp: str | None = None
+    dataQualityFlags: list[str] = Field(default_factory=list)
+    distribution: dict | None = None
     confidence: Literal["elite", "strong", "watch", "thin"] = "watch"
     reasons: list[str]
     metrics: dict

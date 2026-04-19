@@ -42,7 +42,7 @@ class WeatherApiSource:
         url = (
             f"{self.settings.open_meteo_base_url}/forecast"
             f"?latitude={coordinates['latitude']}&longitude={coordinates['longitude']}"
-            "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,weather_code,relative_humidity_2m"
+            "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code,relative_humidity_2m,cloud_cover,surface_pressure"
             "&forecast_days=2&timezone=UTC"
         )
         payload = self.client.get_json(url)
@@ -65,14 +65,23 @@ class WeatherApiSource:
         weather_code = (hourly.get("weather_code") or [None])[best_index]
         precipitation_probability = (hourly.get("precipitation_probability") or [None])[best_index]
         wind_direction = (hourly.get("wind_direction_10m") or [None])[best_index]
+        wind_gusts_kmh = (hourly.get("wind_gusts_10m") or [None])[best_index]
+        cloud_cover = (hourly.get("cloud_cover") or [None])[best_index]
+        pressure_hpa = (hourly.get("surface_pressure") or [None])[best_index]
         temperature_f = temperature_c * (9 / 5) + 32 if temperature_c is not None else None
         wind_speed_mph = wind_speed_kmh * 0.621371 if wind_speed_kmh is not None else None
+        wind_gusts_mph = wind_gusts_kmh * 0.621371 if wind_gusts_kmh is not None else None
         return {
             "condition": WEATHER_CODE_LABELS.get(weather_code, "Forecast available"),
             "temperatureF": round(temperature_f) if temperature_f is not None else None,
+            "temperatureC": round(temperature_c, 1) if temperature_c is not None else None,
             "wind": f"{wind_speed_mph:.0f} mph {to_compass(wind_direction)}" if wind_speed_mph is not None else None,
             "windSpeedMph": round(wind_speed_mph, 1) if wind_speed_mph is not None else None,
+            "windGustsMph": round(wind_gusts_mph, 1) if wind_gusts_mph is not None else None,
             "windDirection": to_compass(wind_direction),
+            "windDirectionDegrees": wind_direction,
             "humidity": humidity,
             "precipitationProbability": precipitation_probability,
+            "cloudCover": cloud_cover,
+            "pressureHpa": round(pressure_hpa, 1) if pressure_hpa is not None else None,
         }

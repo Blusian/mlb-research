@@ -12,6 +12,8 @@ import {
 } from './utils/math.js';
 
 const scoreHitter = (hitter: HitterCandidate): HitterScores => {
+  const hitsProjection = hitter.metrics.propModeling?.hitterHits;
+  const totalBasesProjection = hitter.metrics.propModeling?.hitterTotalBases;
   const contactScore = weightedAverage([
     [scaleToScore(hitter.metrics.averageVsHandedness, 0.21, 0.34), 0.25],
     [scaleToScore(hitter.metrics.wobaVsHandedness, 0.28, 0.45), 0.25],
@@ -57,12 +59,26 @@ const scoreHitter = (hitter: HitterCandidate): HitterScores => {
     [hitter.metrics.lineupConfirmed ? 100 : 68, 0.15],
     [clampScore(hitter.metrics.playingTimeConfidence), 0.25],
   ]);
+  const probabilisticHitScore = hitsProjection
+    ? weightedAverage([
+        [scaleToScore(hitsProjection.meanValue ?? hitsProjection.projectionValue, 0.8, 2.4), 0.34],
+        [((hitsProjection.overLineProbability ?? 0.5) * 100), 0.38],
+        [hitsProjection.confidenceScore ?? 50, 0.28],
+      ])
+    : undefined;
+  const probabilisticTotalBasesScore = totalBasesProjection
+    ? weightedAverage([
+        [scaleToScore(totalBasesProjection.meanValue ?? totalBasesProjection.projectionValue, 1.0, 3.8), 0.34],
+        [((totalBasesProjection.overLineProbability ?? 0.5) * 100), 0.38],
+        [totalBasesProjection.confidenceScore ?? 50, 0.28],
+      ])
+    : undefined;
   const matchupIntelligenceScore = weightedAverage([
     [clampScore(hitter.metrics.batterVsPitcherScore), 0.42],
     [clampScore(hitter.metrics.pitchMixMatchupScore), 0.58],
   ]);
 
-  const overallHitScore = weightedAverage([
+  const overallEntries: Array<[number, number]> = [
     [contactScore, hitterWeights.overall.splitSkill],
     [weightedAverage([[powerScore, 0.72], [batTrackingScore, 0.28]]), hitterWeights.overall.power],
     [disciplineScore, hitterWeights.overall.discipline],
@@ -72,9 +88,16 @@ const scoreHitter = (hitter: HitterCandidate): HitterScores => {
     [parkBoostScore, hitterWeights.overall.parkBoost],
     [lineupContextScore, hitterWeights.overall.lineupContext],
     [matchupIntelligenceScore, 0.1],
-  ]);
+  ];
+  if (probabilisticHitScore !== undefined) {
+    overallEntries.push([probabilisticHitScore, 0.12]);
+  }
+  if (probabilisticTotalBasesScore !== undefined) {
+    overallEntries.push([probabilisticTotalBasesScore, 0.10]);
+  }
+  const overallHitScore = weightedAverage(overallEntries);
 
-  const homeRunUpsideScore = weightedAverage([
+  const homeRunEntries: Array<[number, number]> = [
     [powerScore, hitterWeights.homeRun.power],
     [scaleToScore(hitter.metrics.barrelRate, 2, 20), hitterWeights.homeRun.barrel],
     [scaleToScore(hitter.metrics.hardHitRate, 28, 58), hitterWeights.homeRun.hardHit],
@@ -86,9 +109,13 @@ const scoreHitter = (hitter: HitterCandidate): HitterScores => {
     [scaleToScore(hitter.metrics.homeRunParkFactor, 84, 120), hitterWeights.homeRun.homeRunParkBoost],
     [scaleToScore(hitter.metrics.homeRunParkFactorVsHandedness, 84, 126), 0.12],
     [weightedAverage([[clampScore(hitter.metrics.pitchMixMatchupScore), 0.64], [clampScore(hitter.metrics.batterVsPitcherScore), 0.36]]), 0.16],
-  ]);
+  ];
+  if (probabilisticTotalBasesScore !== undefined) {
+    homeRunEntries.push([probabilisticTotalBasesScore, 0.10]);
+  }
+  const homeRunUpsideScore = weightedAverage(homeRunEntries);
 
-  const floorScore = weightedAverage([
+  const floorEntries: Array<[number, number]> = [
     [contactScore, hitterWeights.floor.contact],
     [disciplineScore, hitterWeights.floor.discipline],
     [recentFormScore, hitterWeights.floor.recentForm],
@@ -96,9 +123,13 @@ const scoreHitter = (hitter: HitterCandidate): HitterScores => {
     [pitcherVulnerabilityScore, hitterWeights.floor.pitcherVulnerability],
     [parkBoostScore, hitterWeights.floor.parkBoost],
     [matchupIntelligenceScore, 0.08],
-  ]);
+  ];
+  if (probabilisticHitScore !== undefined) {
+    floorEntries.push([probabilisticHitScore, 0.16]);
+  }
+  const floorScore = weightedAverage(floorEntries);
 
-  const riskScore = weightedAverage([
+  const riskEntries: Array<[number, number]> = [
     [scaleToScore(hitter.metrics.strikeoutRate, 15, 36), hitterWeights.risk.strikeoutRisk],
     [100 - lineupContextScore, hitterWeights.risk.lineupVolatility],
     [100 - contactScore, hitterWeights.risk.weakSplit],
@@ -106,7 +137,11 @@ const scoreHitter = (hitter: HitterCandidate): HitterScores => {
     [100 - pitcherVulnerabilityScore, hitterWeights.risk.pitcherDifficulty],
     [inverseScaleToScore(hitter.metrics.squaredUpRate, 18, 42), 0.12],
     [100 - matchupIntelligenceScore, 0.1],
-  ]);
+  ];
+  if (probabilisticHitScore !== undefined) {
+    riskEntries.push([100 - probabilisticHitScore, 0.10]);
+  }
+  const riskScore = weightedAverage(riskEntries);
 
   return {
     overallHitScore,
@@ -118,6 +153,8 @@ const scoreHitter = (hitter: HitterCandidate): HitterScores => {
 
 const hitterReasons = (hitter: HitterCandidate, scores: HitterScores): string[] => {
   const reasons: string[] = [];
+  const hitsProjection = hitter.metrics.propModeling?.hitterHits;
+  const totalBasesProjection = hitter.metrics.propModeling?.hitterTotalBases;
 
   if (scores.overallHitScore >= 70) {
     reasons.push(
@@ -128,6 +165,12 @@ const hitterReasons = (hitter: HitterCandidate, scores: HitterScores): string[] 
   if (hitter.metrics.xwobaVsHandedness >= 0.36 || hitter.metrics.xslgVsHandedness >= 0.5) {
     reasons.push(
       `Statcast quality of contact is strong here with a ${formatRate(hitter.metrics.xwobaVsHandedness)} xwOBA and ${formatRate(hitter.metrics.xslgVsHandedness)} xSLG.`,
+    );
+  }
+
+  if (hitsProjection?.projectionLayer?.contactQualityEdge !== undefined) {
+    reasons.push(
+      `Contact-quality edge grades at ${Number(hitsProjection.projectionLayer.contactQualityEdge).toFixed(1)} in the hit model.`,
     );
   }
 
@@ -178,6 +221,18 @@ const hitterReasons = (hitter: HitterCandidate, scores: HitterScores): string[] 
   if (hitter.metrics.opponentPitcherPowerAllowed >= 8.5) {
     reasons.push(
       `The opposing pitcher has allowed damaging contact lately, which keeps the power path open.`,
+    );
+  }
+
+  if (hitsProjection?.projectionLayer?.projectedPlateAppearances !== undefined) {
+    reasons.push(
+      `Expected plate appearances sit around ${Number(hitsProjection.projectionLayer.projectedPlateAppearances).toFixed(2)}, which supports the hit floor.`,
+    );
+  }
+
+  if (totalBasesProjection?.overLineProbability !== undefined) {
+    reasons.push(
+      `Total-base outlook is supported by a ${(totalBasesProjection.overLineProbability * 100).toFixed(1)}% calibrated over probability.`,
     );
   }
 

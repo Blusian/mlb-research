@@ -36,8 +36,52 @@ export interface ProbablePitcherInfo {
 export interface WeatherInfo {
   condition: string;
   temperatureF?: number;
+  temperatureC?: number;
   wind?: string;
+  windSpeedMph?: number;
+  windGustsMph?: number;
+  windDirection?: string;
+  windDirectionDegrees?: number;
   precipitationProbability?: number;
+  cloudCover?: number;
+  pressureHpa?: number;
+}
+
+export interface ProbabilisticProjectionSummary {
+  lineValue?: number;
+  projectionValue: number;
+  meanValue?: number;
+  medianValue?: number;
+  overLineProbability?: number;
+  underLineProbability?: number;
+  confidence?: string;
+  confidenceScore?: number;
+  uncertaintyScore?: number;
+  modelType?: string;
+  projectionLayer?: Record<string, number | string | boolean | null | undefined>;
+  riskLayer?: Record<string, number | string | boolean | null | undefined>;
+  featureSnapshotTimestamp?: string;
+  dataQualityFlags?: string[];
+  distribution?: Record<string, number>;
+}
+
+export interface HitterPropModeling {
+  hitterHits?: ProbabilisticProjectionSummary;
+  hitterTotalBases?: ProbabilisticProjectionSummary;
+}
+
+export interface PitcherStrikeoutProjectionSummary extends ProbabilisticProjectionSummary {
+  projectedStrikeouts?: number;
+  meanKs?: number;
+  medianKs?: number;
+  over3_5Probability?: number;
+  over4_5Probability?: number;
+}
+
+export interface PitcherPropModeling {
+  pitcherStrikeouts?: PitcherStrikeoutProjectionSummary;
+  pitcherWalks?: ProbabilisticProjectionSummary;
+  pitcherOuts?: ProbabilisticProjectionSummary;
 }
 
 export interface OfficialInfo {
@@ -156,6 +200,7 @@ export interface HitterMetricSet {
   lineupConfirmed: boolean;
   lineupSource?: 'official' | 'projected';
   playingTimeConfidence: number;
+  projectedPlateAppearances?: number;
   currentSplitPlateAppearances?: number;
   previousSeasonsPlateAppearances?: number;
   careerPlateAppearances?: number;
@@ -163,6 +208,7 @@ export interface HitterMetricSet {
   seasonGrowthPercent?: number;
   isRookieSeason?: boolean;
   rookieSeasonWarning?: string;
+  propModeling?: HitterPropModeling;
 }
 
 export interface PitcherMetricSet {
@@ -233,6 +279,7 @@ export interface PitcherMetricSet {
   seasonGrowthPercent?: number;
   isRookieSeason?: boolean;
   rookieSeasonWarning?: string;
+  propModeling?: PitcherPropModeling;
 }
 
 export interface HitterCandidate {

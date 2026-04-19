@@ -128,7 +128,12 @@ export interface PitcherLineProp {
   underLineProbability?: number;
   confidenceScore?: number;
   uncertaintyScore?: number;
-  modelType?: 'hybrid_workload_command' | 'hybrid_workload_survival';
+  modelType?: string;
+  projectionLayer?: Record<string, number | string | boolean | null | undefined>;
+  riskLayer?: Record<string, number | string | boolean | null | undefined>;
+  featureSnapshotTimestamp?: string;
+  dataQualityFlags?: string[];
+  distribution?: Record<string, number>;
   confidence: 'elite' | 'strong' | 'watch' | 'thin';
   reasons: string[];
   metrics: {
@@ -185,6 +190,21 @@ export interface PitcherStrikeoutProp {
   lineupConfirmed: boolean;
   lineupSource: 'official' | 'projected' | 'mixed';
   strikeoutScore: number;
+  lineValue?: number;
+  projectionValue?: number;
+  meanValue?: number;
+  medianValue?: number;
+  deltaVsLine?: number;
+  overLineProbability?: number;
+  underLineProbability?: number;
+  confidenceScore?: number;
+  uncertaintyScore?: number;
+  modelType?: string;
+  projectionLayer?: Record<string, number | string | boolean | null | undefined>;
+  riskLayer?: Record<string, number | string | boolean | null | undefined>;
+  featureSnapshotTimestamp?: string;
+  dataQualityFlags?: string[];
+  distribution?: Record<string, number>;
   projectedStrikeouts: number;
   meanKs: number;
   medianKs: number;
@@ -247,7 +267,19 @@ export interface HitterStatProp {
   marketScore: number;
   lineValue: number;
   projectionValue: number;
+  meanValue?: number;
+  medianValue?: number;
   deltaVsLine: number;
+  overLineProbability?: number;
+  underLineProbability?: number;
+  confidenceScore?: number;
+  uncertaintyScore?: number;
+  modelType?: string;
+  projectionLayer?: Record<string, number | string | boolean | null | undefined>;
+  riskLayer?: Record<string, number | string | boolean | null | undefined>;
+  featureSnapshotTimestamp?: string;
+  dataQualityFlags?: string[];
+  distribution?: Record<string, number>;
   confidence: 'elite' | 'strong' | 'watch' | 'thin';
   reasons: string[];
   metrics: {

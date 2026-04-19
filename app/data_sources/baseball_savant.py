@@ -9,6 +9,29 @@ from app.utils.math_utils import parse_decimal, parse_float
 
 
 class BaseballSavantSource:
+    PITCH_EVENT_FIELDS = (
+        "pitch_type",
+        "release_speed",
+        "release_spin",
+        "spin_axis",
+        "pfx_x",
+        "pfx_z",
+        "plate_x",
+        "plate_z",
+        "balls",
+        "strikes",
+        "description",
+        "events",
+        "launch_speed",
+        "launch_angle",
+        "estimated_ba_using_speedangle",
+        "estimated_woba_using_speedangle",
+        "release_extension",
+        "stand",
+        "p_throws",
+        "delta_run_exp",
+    )
+
     def __init__(self, client: RateLimitedHttpClient | None = None) -> None:
         self.settings = get_settings()
         self.client = client or RateLimitedHttpClient()
@@ -60,6 +83,40 @@ class BaseballSavantSource:
                 "zoneContactRate": min(100, 108 - parse_float(row.get("whiff_per_swing"), 28)),
             }
         return profiles
+
+    def get_pitch_events(
+        self,
+        date_from: str,
+        date_to: str,
+        *,
+        season: str | None = None,
+        pitcher_id: str | None = None,
+        batter_id: str | None = None,
+        game_pk: str | None = None,
+    ) -> list[dict[str, str | float | None]]:
+        inferred_season = season or date_from[:4]
+        params = {
+            "all": "true",
+            "csv": "true",
+            "game_date_gt": date_from,
+            "game_date_lt": date_to,
+            "hfGT": "R|",
+            "hfSea": f"{inferred_season}|",
+            "min_pas": "0",
+            "min_pitches": "0",
+            "min_results": "0",
+            "player_type": "pitcher",
+            "sort_col": "game_date",
+            "sort_order": "asc",
+        }
+        if pitcher_id:
+            params["pitchers_lookup[]"] = pitcher_id
+        if batter_id:
+            params["batters_lookup[]"] = batter_id
+        if game_pk:
+            params["game_pk"] = game_pk
+        url = f"{self.settings.baseball_savant_base_url}/statcast_search/csv?{self._encode(params)}"
+        return [self._normalize_pitch_event_row(row) for row in self._read_csv_rows(url)]
 
     def _fetch_leaderboard(
         self,
@@ -170,3 +227,20 @@ class BaseballSavantSource:
             if any(value for value in cleaned.values()):
                 rows.append(cleaned)
         return rows
+
+    @classmethod
+    def _normalize_pitch_event_row(cls, row: dict[str, str]) -> dict[str, str | float | None]:
+        normalized: dict[str, str | float | None] = {}
+        for field in cls.PITCH_EVENT_FIELDS:
+            value = row.get(field)
+            if field in {"pitch_type", "description", "events", "stand", "p_throws"}:
+                normalized[field] = value or None
+            else:
+                normalized[field] = parse_float(value, None) if value not in {None, ""} else None
+        normalized["game_pk"] = row.get("game_pk")
+        normalized["game_date"] = row.get("game_date")
+        normalized["pitch_number"] = parse_float(row.get("pitch_number"), None) if row.get("pitch_number") else None
+        normalized["at_bat_number"] = parse_float(row.get("at_bat_number"), None) if row.get("at_bat_number") else None
+        normalized["pitcher"] = row.get("pitcher")
+        normalized["batter"] = row.get("batter")
+        return normalized
